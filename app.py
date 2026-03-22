@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import requests
 import plotly.express as px
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 
 st.set_page_config(layout="wide")
 st.title("Energiemonitor Deutschland")
@@ -17,14 +17,79 @@ TANKERKOENIG_API_KEY = st.secrets.get("TANKERKOENIG_API_KEY", "")
 # Hilfsfunktionen
 # =========================================================
 def safe_get_json(url, headers=None, timeout=30):
-    r = requests.get(url, headers=headers or {}, timeout=timeout)
+    r = requests.get(url, headers=headers or {"User-Agent": "Mozilla/5.0"}, timeout=timeout)
     r.raise_for_status()
     return r.json()
 
-def parse_series_to_df(series, value_name):
+def parse_smard_series(series, value_name):
     df = pd.DataFrame(series, columns=["timestamp", value_name])
     df["time"] = pd.to_datetime(df["timestamp"], unit="ms", utc=True).dt.tz_convert("Europe/Berlin")
     return df.drop(columns=["timestamp"]).sort_values("time")
+
+def extract_energy_charts_df(data):
+    """
+    Robuster Parser für unterschiedliche Energy-Charts-Formate.
+    Unterstützt:
+    - dict mit unix_seconds + production_types[{name,data}]
+    - dict mit unix_seconds + mehreren Listen
+    - list[dict]
+    """
+    # Fall A: production_types + unix_seconds
+    if isinstance(data, dict):
+        production = data.get("production_types", [])
+        unix_seconds = data.get("unix_seconds", [])
+
+        if production and unix_seconds:
+            df = pd.DataFrame({
+                "time": pd.to_datetime(unix_seconds, unit="s", utc=True).tz_convert("Europe/Berlin")
+            })
+            for item in production:
+                name = item.get("name", "Unbekannt")
+                values = item.get("data", [])
+                if len(values) == len(df):
+                    df[name] = pd.to_numeric(values, errors="coerce")
+            if len(df.columns) > 1:
+                return df.sort_values("time")
+
+        # Fall B: unix_seconds + flache Listen
+        if "unix_seconds" in data:
+            df = pd.DataFrame({
+                "time": pd.to_datetime(data["unix_seconds"], unit="s", utc=True).tz_convert("Europe/Berlin")
+            })
+            for key, values in data.items():
+                if key == "unix_seconds":
+                    continue
+                if isinstance(values, list) and len(values) == len(df):
+                    df[key] = pd.to_numeric(values, errors="coerce")
+            if len(df.columns) > 1:
+                return df.sort_values("time")
+
+    # Fall C: Liste von Datensätzen
+    if isinstance(data, list) and len(data) > 0:
+        df = pd.DataFrame(data)
+
+        for candidate in ["time", "date", "datetime", "timestamp", "unix_seconds"]:
+            if candidate in df.columns:
+                if candidate == "unix_seconds":
+                    df["time"] = pd.to_datetime(df[candidate], unit="s", utc=True).dt.tz_convert("Europe/Berlin")
+                else:
+                    df["time"] = pd.to_datetime(df[candidate], utc=True, errors="coerce")
+                    try:
+                        df["time"] = df["time"].dt.tz_convert("Europe/Berlin")
+                    except Exception:
+                        pass
+                break
+
+        if "time" in df.columns:
+            for col in df.columns:
+                if col != "time":
+                    df[col] = pd.to_numeric(df[col], errors="ignore")
+            return df.sort_values("time")
+
+    raise RuntimeError(
+        f"Energy-Charts-Datenformat nicht erkannt: "
+        f"{list(data.keys())[:20] if isinstance(data, dict) else type(data)}"
+    )
 
 # =========================================================
 # 1) SMARD – Strompreis Day-Ahead
@@ -51,7 +116,7 @@ def get_smard_day_ahead_price():
     if not series:
         raise RuntimeError("Keine SMARD-Daten für Strompreis gefunden.")
 
-    return parse_series_to_df(series, "strompreis_eur_mwh")
+    return parse_smard_series(series, "strompreis_eur_mwh")
 
 # =========================================================
 # 2) Energy-Charts – Stromproduktion / Strommix
@@ -66,24 +131,7 @@ def get_energy_charts_total_power(days=7):
         f"?country=de&start={start_date.isoformat()}&end={end_date.isoformat()}"
     )
     data = safe_get_json(url)
-
-    production = data.get("production_types", [])
-    unix_seconds = data.get("unix_seconds", [])
-
-    if not production or not unix_seconds:
-        raise RuntimeError("Keine Energy-Charts total_power-Daten gefunden.")
-
-    df = pd.DataFrame({
-        "time": pd.to_datetime(unix_seconds, unit="s", utc=True).tz_convert("Europe/Berlin")
-    })
-
-    for item in production:
-        name = item.get("name", "Unbekannt")
-        values = item.get("data", [])
-        if len(values) == len(df):
-            df[name] = values
-
-    return df.sort_values("time")
+    return extract_energy_charts_df(data)
 
 # =========================================================
 # 3) Energy-Charts – Erneuerbaren-Anteil
@@ -93,6 +141,7 @@ def get_energy_charts_renewable_share(days=30):
     end_date = datetime.utcnow().date()
     start_date = end_date - timedelta(days=days)
 
+    last_error = None
     for endpoint in ["ren_share", "ren_share_daily_avg"]:
         try:
             url = (
@@ -100,21 +149,12 @@ def get_energy_charts_renewable_share(days=30):
                 f"?country=de&start={start_date.isoformat()}&end={end_date.isoformat()}"
             )
             data = safe_get_json(url)
+            df = extract_energy_charts_df(data)
+            return endpoint, df
+        except Exception as e:
+            last_error = e
 
-            if "unix_seconds" in data:
-                df = pd.DataFrame({
-                    "time": pd.to_datetime(data["unix_seconds"], unit="s", utc=True).tz_convert("Europe/Berlin")
-                })
-                for k, v in data.items():
-                    if k == "unix_seconds":
-                        continue
-                    if isinstance(v, list) and len(v) == len(df):
-                        df[k] = v
-                return endpoint, df
-        except Exception:
-            continue
-
-    raise RuntimeError("Kein passender Energy-Charts-Endpunkt für Erneuerbaren-Anteil gefunden.")
+    raise RuntimeError(f"Kein passender Energy-Charts-Endpunkt für Erneuerbaren-Anteil gefunden: {last_error}")
 
 # =========================================================
 # 4) Energy-Charts – Installierte Leistung (Wind / Solar)
@@ -130,34 +170,13 @@ def get_energy_charts_installed_power():
         f"?country=de&start={start_date}&end={end_date}"
     )
     data = safe_get_json(url)
-
-    production = data.get("production_types", [])
-    unix_seconds = data.get("unix_seconds", [])
-
-    if not production or not unix_seconds:
-        raise RuntimeError("Keine Energy-Charts installed_power-Daten gefunden.")
-
-    df = pd.DataFrame({
-        "time": pd.to_datetime(unix_seconds, unit="s", utc=True).tz_convert("Europe/Berlin")
-    })
-
-    for item in production:
-        name = item.get("name", "Unbekannt")
-        values = item.get("data", [])
-        if len(values) == len(df):
-            df[name] = values
-
-    return df.sort_values("time")
+    return extract_energy_charts_df(data)
 
 # =========================================================
 # 5) SMARD – Haushalts-Gaspreis (monatlich)
-#    Öffentliche, stabile Lösung statt Verivox-Tageswert
 # =========================================================
 @st.cache_data(ttl=86400)
 def get_smard_household_gas_price():
-    # Falls sich die API-Struktur ändert, bitte im Fehlerfall kurz melden.
-    # Diese Funktion lädt eine monatliche Preisserie aus dem SMARD-Compact-Bereich.
-    # Wir probieren mehrere bekannte Filter-IDs / Auflösungen defensiv durch.
     candidates = [
         ("month", 5190000),
         ("month", 5190001),
@@ -186,26 +205,27 @@ def get_smard_household_gas_price():
             if not series:
                 continue
 
-            df = parse_series_to_df(series, "gaspreis_ct_kwh")
-            # sehr grobe Plausibilitätsprüfung
+            df = parse_smard_series(series, "gaspreis_ct_kwh")
             values = pd.to_numeric(df["gaspreis_ct_kwh"], errors="coerce").dropna()
+
             if not values.empty and values.between(1, 50).mean() > 0.5:
                 return df
         except Exception as e:
             last_error = e
 
-    raise RuntimeError(f"SMARD-Haushaltsgaspreis konnte nicht geladen werden. Letzter Fehler: {last_error}")
+    raise RuntimeError(
+        f"SMARD-Haushaltsgaspreis konnte nicht geladen werden. "
+        f"Letzter Fehler: {last_error}"
+    )
 
 # =========================================================
-# 6) Tankerkönig – Spritpreis (Super E5, Tagesmittel)
+# 6) Tankerkönig – Spritpreis (Super E5, angenäherter Mittelwert)
 # =========================================================
 @st.cache_data(ttl=1800)
 def get_tankerkoenig_daily_price():
     if not TANKERKOENIG_API_KEY:
         return None
 
-    # Deutschlandweite Mittelwerte gibt es nicht als Einzeilen-Endpoint.
-    # Pragmatiker-Lösung: einige große Städte abfragen und Mittel bilden.
     stations = [
         ("Berlin", 52.5200, 13.4050),
         ("Hamburg", 53.5511, 9.9937),
@@ -216,7 +236,7 @@ def get_tankerkoenig_daily_price():
     ]
 
     prices = []
-    for city, lat, lng in stations:
+    for _, lat, lng in stations:
         url = (
             "https://creativecommons.tankerkoenig.de/json/list.php"
             f"?lat={lat}&lng={lng}&rad=8&sort=dist&type=all&apikey={TANKERKOENIG_API_KEY}"
@@ -231,11 +251,10 @@ def get_tankerkoenig_daily_price():
         raise RuntimeError("Tankerkönig lieferte keine verwertbaren E5-Preise.")
 
     now = pd.Timestamp.now(tz="Europe/Berlin")
-    df = pd.DataFrame({
+    return pd.DataFrame({
         "time": [now],
         "spritpreis_eur_l": [sum(prices) / len(prices)]
     })
-    return df
 
 # =========================================================
 # 7) AGSI – Gasspeicherfüllstand
@@ -364,11 +383,18 @@ tabs = st.tabs([
     "Füllstand Gasspeicher",
 ])
 
-# 1 Windkraftausbau
+# Windkraftausbau
 with tabs[0]:
     st.subheader("Windkraftausbau / installierte Leistung")
     if df_installed is not None:
-        wind_cols = [c for c in df_installed.columns if "wind" in c.lower()]
+        wind_cols = [
+            c for c in df_installed.columns
+            if c != "time" and (
+                "wind" in c.lower() or
+                "onshore" in c.lower() or
+                "offshore" in c.lower()
+            )
+        ]
         if wind_cols:
             df_plot = df_installed[["time"] + wind_cols].copy()
             df_plot["Wind gesamt"] = df_plot[wind_cols].sum(axis=1)
@@ -376,15 +402,22 @@ with tabs[0]:
             st.plotly_chart(fig, use_container_width=True)
             st.dataframe(df_plot.tail(30), use_container_width=True)
         else:
-            st.info("Keine Wind-Serien erkannt.")
+            st.info(f"Keine Wind-Serien erkannt. Verfügbare Spalten: {list(df_installed.columns)}")
     else:
         st.error(errors.get("ausbau", "Unbekannter Fehler"))
 
-# 2 Solarausbau
+# Solarausbau
 with tabs[1]:
     st.subheader("Solarausbau / installierte Leistung")
     if df_installed is not None:
-        solar_cols = [c for c in df_installed.columns if "solar" in c.lower() or "pv" in c.lower()]
+        solar_cols = [
+            c for c in df_installed.columns
+            if c != "time" and (
+                "solar" in c.lower() or
+                "pv" in c.lower() or
+                "photovoltaic" in c.lower()
+            )
+        ]
         if solar_cols:
             df_plot = df_installed[["time"] + solar_cols].copy()
             df_plot["Solar gesamt"] = df_plot[solar_cols].sum(axis=1)
@@ -392,18 +425,20 @@ with tabs[1]:
             st.plotly_chart(fig, use_container_width=True)
             st.dataframe(df_plot.tail(30), use_container_width=True)
         else:
-            st.info("Keine Solar-Serien erkannt.")
+            st.info(f"Keine Solar-Serien erkannt. Verfügbare Spalten: {list(df_installed.columns)}")
     else:
         st.error(errors.get("ausbau", "Unbekannter Fehler"))
 
-# 3 Erneuerbare
+# Erneuerbare
 with tabs[2]:
     st.subheader("Anteil erneuerbarer Energien")
     if df_ren is not None:
         cols = [c for c in df_ren.columns if c != "time"]
         if cols:
             plot_cols = cols[:4]
-            df_long = df_ren[["time"] + plot_cols].melt(id_vars="time", var_name="Serie", value_name="Wert")
+            df_long = df_ren[["time"] + plot_cols].melt(
+                id_vars="time", var_name="Serie", value_name="Wert"
+            )
             fig = px.line(df_long, x="time", y="Wert", color="Serie")
             st.plotly_chart(fig, use_container_width=True)
             st.caption(f"Energy-Charts Endpoint: {ren_endpoint}")
@@ -413,7 +448,7 @@ with tabs[2]:
     else:
         st.error(errors.get("erneuerbare", "Unbekannter Fehler"))
 
-# 4 Stromproduktion
+# Stromproduktion
 with tabs[3]:
     st.subheader("Stromproduktion / Strommix")
     if df_mix is not None:
@@ -427,16 +462,18 @@ with tabs[3]:
         keep = keep[:8]
 
         if keep:
-            df_long = df_mix[["time"] + keep].melt(id_vars="time", var_name="Serie", value_name="Wert")
+            df_long = df_mix[["time"] + keep].melt(
+                id_vars="time", var_name="Serie", value_name="Wert"
+            )
             fig = px.area(df_long, x="time", y="Wert", color="Serie")
             st.plotly_chart(fig, use_container_width=True)
             st.dataframe(df_mix.tail(50), use_container_width=True)
         else:
-            st.info("Keine geeigneten Stromproduktions-Serien erkannt.")
+            st.info(f"Keine geeigneten Stromproduktions-Serien erkannt. Verfügbare Spalten: {list(df_mix.columns)}")
     else:
         st.error(errors.get("stromproduktion", "Unbekannter Fehler"))
 
-# 5 Strompreis
+# Strompreis
 with tabs[4]:
     st.subheader("Gewichteter Stromgroßhandelspreis (Day-Ahead)")
     if df_price is not None:
@@ -446,7 +483,7 @@ with tabs[4]:
     else:
         st.error(errors.get("strompreis", "Unbekannter Fehler"))
 
-# 6 Spritpreis
+# Spritpreis
 with tabs[5]:
     st.subheader("Spritpreis (Super E5)")
     if df_fuel is not None:
@@ -459,7 +496,7 @@ with tabs[5]:
         else:
             st.error(errors.get("spritpreis", "Unbekannter Fehler"))
 
-# 7 Gaspreis
+# Gaspreis
 with tabs[6]:
     st.subheader("Haushalts-Gaspreis")
     if df_gas is not None:
@@ -470,7 +507,7 @@ with tabs[6]:
     else:
         st.error(errors.get("gaspreis", "Unbekannter Fehler"))
 
-# 8 Gasspeicher
+# Gasspeicher
 with tabs[7]:
     st.subheader("Füllstand Gasspeicher")
     if df_storage is not None:
@@ -480,7 +517,7 @@ with tabs[7]:
             st.plotly_chart(fig, use_container_width=True)
             st.dataframe(df_storage.tail(50), use_container_width=True)
         else:
-            st.info("Keine Füllstands-Spalte erkannt.")
+            st.info(f"Keine Füllstands-Spalte erkannt. Verfügbare Spalten: {list(df_storage.columns)}")
     else:
         if not AGSI_API_KEY:
             st.info("Bitte AGSI_API_KEY in den Streamlit-Secrets hinterlegen.")
