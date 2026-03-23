@@ -1,74 +1,68 @@
 import streamlit as st
-import requests
 import pandas as pd
+import requests
+import plotly.express as px
 
 st.set_page_config(layout="wide")
-st.title("SMARD Debug")
+st.title("Energiemonitor – Strompreis")
 
 HEADERS = {"User-Agent": "Mozilla/5.0"}
 
-st.write("1. App gestartet")
-
-try:
+# -------------------------------------------------
+# SMARD sauber gekapselt
+# -------------------------------------------------
+@st.cache_data(ttl=3600)
+def load_smard():
     filter_id = 4169
     region = "DE"
     resolution = "hour"
 
     idx_url = f"https://www.smard.de/app/chart_data/{filter_id}/{region}/index_{resolution}.json"
-    st.write("2. Index-URL:", idx_url)
-
-    idx_response = requests.get(idx_url, headers=HEADERS, timeout=30)
-    st.write("3. Index-Status:", idx_response.status_code)
-
-    idx_response.raise_for_status()
-
-    idx_data = idx_response.json()
-    st.write("4. Index-JSON geladen")
-    st.write("5. Keys im Index:", list(idx_data.keys()))
+    idx = requests.get(idx_url, headers=HEADERS, timeout=30)
+    idx.raise_for_status()
+    idx_data = idx.json()
 
     timestamps = idx_data.get("timestamps", [])
-    st.write("6. Anzahl Timestamps:", len(timestamps))
-
     if not timestamps:
-        st.error("Keine Timestamps gefunden.")
-        st.stop()
+        raise RuntimeError("Keine Timestamps gefunden")
 
     latest_ts = timestamps[-1]
-    st.write("7. Letzter Timestamp:", latest_ts)
 
     data_url = (
         f"https://www.smard.de/app/chart_data/{filter_id}/{region}/"
         f"{filter_id}_{region}_{resolution}_{latest_ts}.json"
     )
-    st.write("8. Daten-URL:", data_url)
 
-    data_response = requests.get(data_url, headers=HEADERS, timeout=30)
-    st.write("9. Daten-Status:", data_response.status_code)
-
-    data_response.raise_for_status()
-
-    data = data_response.json()
-    st.write("10. Daten-JSON geladen")
-    st.write("11. Keys in Daten:", list(data.keys()))
+    data = requests.get(data_url, headers=HEADERS, timeout=30)
+    data.raise_for_status()
+    data = data.json()
 
     series = data.get("series", [])
-    st.write("12. Anzahl Serienpunkte:", len(series))
-
     if not series:
-        st.error("Keine Serienwerte gefunden.")
-        st.stop()
+        raise RuntimeError("Keine Zeitreihe gefunden")
 
     df = pd.DataFrame(series, columns=["timestamp", "preis"])
-    st.write("13. DataFrame erstellt")
-    st.dataframe(df.head())
-
     df["time"] = pd.to_datetime(df["timestamp"], unit="ms", utc=True).dt.tz_convert("Europe/Berlin")
     df["preis"] = pd.to_numeric(df["preis"], errors="coerce")
 
-    st.write("14. Zeit umgewandelt")
-    st.metric("Letzter Preis", f"{df['preis'].dropna().iloc[-1]:.2f} €/MWh")
+    return df.dropna()
 
-    st.line_chart(df.set_index("time")["preis"])
+# -------------------------------------------------
+# App
+# -------------------------------------------------
+try:
+    df = load_smard()
+
+    # KPI
+    last = df["preis"].iloc[-1]
+    st.metric("Aktueller Strompreis", f"{last:.2f} €/MWh")
+
+    # Chart
+    fig = px.line(df.tail(24 * 7), x="time", y="preis", title="Strompreis – letzte 7 Tage")
+    st.plotly_chart(fig, use_container_width=True)
+
+    # Tabelle
+    st.dataframe(df.tail(50), use_container_width=True)
 
 except Exception as e:
-    st.error(f"Fehler: {type(e).__name__}: {e}")
+    st.error(f"Fehler: {e}")
