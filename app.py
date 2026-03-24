@@ -6,8 +6,11 @@ import plotly.express as px
 import requests
 import streamlit as st
 
-st.set_page_config(layout="wide", page_title="Energiemonitor Deutschland")
-st.title("Energiemonitor Deutschland")
+st.set_page_config(
+    page_title="Energiemonitor Deutschland",
+    layout="wide",
+    initial_sidebar_state="collapsed",
+)
 
 HEADERS = {"User-Agent": "Mozilla/5.0 (Energiemonitor)"}
 
@@ -15,6 +18,107 @@ AGSI_API_KEY = st.secrets.get("AGSI_API_KEY", "")
 TANKERKOENIG_API_KEY = st.secrets.get("TANKERKOENIG_API_KEY", "")
 
 ZEIT_URL = "https://www.zeit.de/wirtschaft/energiemonitor-strompreis-gaspreis-erneuerbare-energien-ausbau"
+
+
+# =========================================================
+# Styling
+# =========================================================
+st.markdown(
+    """
+    <style>
+    .block-container {
+        padding-top: 1.2rem;
+        padding-bottom: 2rem;
+        max-width: 1500px;
+    }
+
+    .app-title {
+        font-size: 2rem;
+        font-weight: 700;
+        margin-bottom: 1.4rem;
+        color: #f5f5f5;
+    }
+
+    .card {
+        background: #0a0a0a;
+        border: 1px solid #2d2d2d;
+        border-radius: 0px;
+        padding: 18px 18px 8px 18px;
+        min-height: 420px;
+    }
+
+    .card-title {
+        font-size: 1.55rem;
+        font-weight: 700;
+        margin-bottom: 1rem;
+        line-height: 1.15;
+    }
+
+    .card-subtitle {
+        font-size: 0.95rem;
+        color: #b9b9b9;
+        margin-bottom: 0.2rem;
+    }
+
+    .metric-line {
+        display: flex;
+        align-items: baseline;
+        gap: 0.35rem;
+        margin-bottom: 0.35rem;
+        flex-wrap: wrap;
+    }
+
+    .metric-value {
+        font-size: 2.25rem;
+        font-weight: 800;
+        line-height: 1;
+    }
+
+    .metric-unit {
+        font-size: 1.25rem;
+        font-weight: 700;
+        opacity: 0.95;
+    }
+
+    .metric-text {
+        font-size: 1rem;
+        line-height: 1.35;
+        margin-bottom: 1rem;
+    }
+
+    .small-note {
+        color: #9f9f9f;
+        font-size: 0.88rem;
+        margin-top: 0.35rem;
+    }
+
+    .cyan { color: #5ee7f2; }
+    .yellow { color: #e8d11a; }
+    .green { color: #19d36b; }
+    .pink { color: #ff6b8b; }
+    .purple { color: #a58cff; }
+
+    div[data-testid="stPlotlyChart"] {
+        background: transparent !important;
+    }
+
+    .section-gap {
+        height: 14px;
+    }
+
+    .debug-box {
+        margin-top: 1rem;
+        padding: 1rem;
+        border: 1px solid #2d2d2d;
+        background: #111111;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+st.markdown('<div class="app-title">Energiemonitor Deutschland</div>', unsafe_allow_html=True)
+
 
 # =========================================================
 # Helpers
@@ -24,22 +128,14 @@ def safe_get(url, headers=None, timeout=20):
     r.raise_for_status()
     return r
 
+
 def safe_get_json(url, headers=None, timeout=20):
     return safe_get(url, headers=headers, timeout=timeout).json()
+
 
 def as_numeric(series):
     return pd.to_numeric(series, errors="coerce")
 
-def latest_label(df, time_col="time"):
-    if df is None or df.empty or time_col not in df.columns:
-        return "keine Daten"
-    last = pd.to_datetime(df[time_col], errors="coerce").max()
-    if pd.isna(last):
-        return "keine Daten"
-    try:
-        return last.strftime("%d.%m.%Y %H:%M")
-    except Exception:
-        return str(last)
 
 def parse_time_any(values):
     parsed = pd.to_datetime(values, errors="coerce", utc=True)
@@ -52,8 +148,132 @@ def parse_time_any(values):
         pass
     return parsed
 
+
+def latest_label(df, time_col="time"):
+    if df is None or df.empty or time_col not in df.columns:
+        return "keine Daten"
+    last = pd.to_datetime(df[time_col], errors="coerce").max()
+    if pd.isna(last):
+        return "keine Daten"
+    try:
+        return last.strftime("%d.%m.%Y %H:%M")
+    except Exception:
+        return str(last)
+
+
+def simple_card_header(title, color_class):
+    st.markdown(
+        f'<div class="card-title {color_class}">{title}</div>',
+        unsafe_allow_html=True,
+    )
+
+
+def metric_block(value, unit, text, color_class):
+    st.markdown(
+        f"""
+        <div class="metric-line">
+            <div class="metric-value {color_class}">{value}</div>
+            <div class="metric-unit {color_class}">{unit}</div>
+        </div>
+        <div class="metric-text {color_class}">{text}</div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def plot_line(df, x, y, color_hex, title=None):
+    fig = px.line(df, x=x, y=y)
+    fig.update_traces(line=dict(color=color_hex, width=3))
+    fig.update_layout(
+        height=220,
+        margin=dict(l=8, r=8, t=18 if title else 8, b=8),
+        paper_bgcolor="#0a0a0a",
+        plot_bgcolor="#0a0a0a",
+        font=dict(color="#d7d7d7"),
+        xaxis=dict(
+            title="",
+            showgrid=False,
+            zeroline=False,
+            showline=False,
+            tickfont=dict(size=11),
+        ),
+        yaxis=dict(
+            title="",
+            showgrid=True,
+            gridcolor="#313131",
+            zeroline=False,
+            showline=False,
+            tickfont=dict(size=11),
+        ),
+        showlegend=False,
+    )
+    return fig
+
+
+def plot_area(df_long, x, y, color, color_map):
+    fig = px.area(df_long, x=x, y=y, color=color, color_discrete_map=color_map)
+    fig.update_layout(
+        height=220,
+        margin=dict(l=8, r=8, t=8, b=8),
+        paper_bgcolor="#0a0a0a",
+        plot_bgcolor="#0a0a0a",
+        font=dict(color="#d7d7d7"),
+        xaxis=dict(
+            title="",
+            showgrid=False,
+            zeroline=False,
+            showline=False,
+            tickfont=dict(size=11),
+        ),
+        yaxis=dict(
+            title="",
+            showgrid=True,
+            gridcolor="#313131",
+            zeroline=False,
+            showline=False,
+            tickfont=dict(size=11),
+        ),
+        legend=dict(
+            orientation="v",
+            bgcolor="rgba(0,0,0,0)",
+            font=dict(size=11),
+        ),
+    )
+    return fig
+
+
 # =========================================================
-# SMARD – Strompreis
+# Data: ZEIT snapshot
+# =========================================================
+@st.cache_data(ttl=3600)
+def load_zeit_snapshot():
+    html = safe_get(ZEIT_URL, timeout=15).text
+    text = re.sub(r"<[^>]+>", " ", html)
+    text = re.sub(r"\s+", " ", text)
+
+    result = {
+        "gas_ct_kwh": None,
+        "strom_ct_kwh": None,
+        "sprit_eur_l": None,
+    }
+
+    gas_match = re.search(r"Gas kostet derzeit\s+([0-9]+(?:[.,][0-9]+)?)\s*Cent je Kilowattstunde", text)
+    if gas_match:
+        result["gas_ct_kwh"] = float(gas_match.group(1).replace(",", "."))
+
+    strom_match = re.search(r"Strom kostet derzeit\s+([0-9]+(?:[.,][0-9]+)?)\s*Cent je Kilowattstunde", text)
+    if strom_match:
+        result["strom_ct_kwh"] = float(strom_match.group(1).replace(",", "."))
+
+    sprit_match = re.search(r"Ein Liter Benzin der Sorte Super E5 kostet\s+([0-9]+(?:[.,][0-9]+)?)\s*Euro", text)
+    if sprit_match:
+        result["sprit_eur_l"] = float(sprit_match.group(1).replace(",", "."))
+
+    return result
+
+
+# =========================================================
+# Data: SMARD electricity price
 # =========================================================
 @st.cache_data(ttl=3600)
 def load_smard_strompreis():
@@ -82,37 +302,9 @@ def load_smard_strompreis():
     df["strompreis_eur_mwh"] = as_numeric(df["strompreis_eur_mwh"])
     return df[["time", "strompreis_eur_mwh"]].dropna().sort_values("time")
 
-# =========================================================
-# ZEIT – Snapshot für Gas / Sprit Fallback
-# =========================================================
-@st.cache_data(ttl=3600)
-def load_zeit_snapshot():
-    html = safe_get(ZEIT_URL, timeout=15).text
-    text = re.sub(r"<[^>]+>", " ", html)
-    text = re.sub(r"\s+", " ", text)
-
-    result = {
-        "gas_ct_kwh": None,
-        "strom_ct_kwh": None,
-        "sprit_eur_l": None,
-    }
-
-    gas_match = re.search(r"Gas kostet derzeit\s+([0-9]+(?:[.,][0-9]+)?)\s*Cent je Kilowattstunde", text)
-    if gas_match:
-        result["gas_ct_kwh"] = float(gas_match.group(1).replace(",", "."))
-
-    strom_match = re.search(r"Strom kostet derzeit\s+([0-9]+(?:[.,][0-9]+)?)\s*Cent je Kilowattstunde", text)
-    if strom_match:
-        result["strom_ct_kwh"] = float(strom_match.group(1).replace(",", "."))
-
-    sprit_match = re.search(r"Ein Liter Benzin der Sorte Super E5 kostet\s+([0-9]+(?:[.,][0-9]+)?)\s*Euro", text)
-    if sprit_match:
-        result["sprit_eur_l"] = float(sprit_match.group(1).replace(",", "."))
-
-    return result
 
 # =========================================================
-# Energy-Charts Parser
+# Data: Energy Charts parser
 # =========================================================
 def parse_energy_charts_payload(data):
     if isinstance(data, dict):
@@ -120,7 +312,6 @@ def parse_energy_charts_payload(data):
         unix_seconds = data.get("unix_seconds")
         time_values = data.get("time")
 
-        # 1) unix_seconds + production_types
         if isinstance(unix_seconds, list) and isinstance(production_types, list):
             df = pd.DataFrame({
                 "time": pd.to_datetime(unix_seconds, unit="s", utc=True).tz_convert("Europe/Berlin")
@@ -135,7 +326,6 @@ def parse_energy_charts_payload(data):
             if len(df.columns) > 1:
                 return df.sort_values("time")
 
-        # 2) time + production_types
         if isinstance(time_values, list) and isinstance(production_types, list):
             df = pd.DataFrame({"time": parse_time_any(time_values)})
             for item in production_types:
@@ -148,7 +338,6 @@ def parse_energy_charts_payload(data):
             if len(df.columns) > 1:
                 return df.sort_values("time")
 
-        # 3) time + flache Listen
         if isinstance(time_values, list):
             df = pd.DataFrame({"time": parse_time_any(time_values)})
             for key, values in data.items():
@@ -159,7 +348,6 @@ def parse_energy_charts_payload(data):
             if len(df.columns) > 1:
                 return df.sort_values("time")
 
-        # 4) unix_seconds + flache Listen
         if isinstance(unix_seconds, list):
             df = pd.DataFrame({
                 "time": pd.to_datetime(unix_seconds, unit="s", utc=True).tz_convert("Europe/Berlin")
@@ -193,8 +381,9 @@ def parse_energy_charts_payload(data):
         f"{list(data.keys())[:20] if isinstance(data, dict) else type(data)}"
     )
 
+
 # =========================================================
-# Energy-Charts Loader
+# Data: Energy Charts loader
 # =========================================================
 @st.cache_data(ttl=3600)
 def load_energy_charts_raw(endpoint, days=7):
@@ -202,6 +391,7 @@ def load_energy_charts_raw(endpoint, days=7):
     start_date = end_date - timedelta(days=days)
     url = f"https://api.energy-charts.info/{endpoint}?country=de&start={start_date.isoformat()}&end={end_date.isoformat()}"
     return safe_get_json(url)
+
 
 @st.cache_data(ttl=3600)
 def load_stromproduktion():
@@ -216,6 +406,7 @@ def load_stromproduktion():
             last_error = f"{endpoint}: {e}"
     raise RuntimeError(last_error or "Stromproduktion konnte nicht geladen werden.")
 
+
 @st.cache_data(ttl=3600)
 def load_installed_power():
     raw = load_energy_charts_raw("installed_power", days=365)
@@ -223,6 +414,7 @@ def load_installed_power():
     if df.empty or len(df.columns) <= 1:
         raise RuntimeError("Installed Power leer oder unbrauchbar.")
     return raw, df
+
 
 def build_renewable_share(df_total):
     renewable_keywords = ["solar", "pv", "wind", "hydro", "water", "biomass", "renewable", "geothermal"]
@@ -238,6 +430,7 @@ def build_renewable_share(df_total):
     df["erneuerbaren_anteil_prozent"] = (df["erneuerbare_summe"] / df["gesamt"]) * 100
     return df, renewable_cols
 
+
 def build_ausbau_series(df_installed):
     cols = [c for c in df_installed.columns if c != "time"]
 
@@ -252,8 +445,9 @@ def build_ausbau_series(df_installed):
 
     return out, wind_cols, solar_cols
 
+
 # =========================================================
-# Tankerkönig / AGSI optional
+# Data: Tankerkönig / AGSI optional
 # =========================================================
 @st.cache_data(ttl=1800)
 def load_spritpreis():
@@ -291,6 +485,7 @@ def load_spritpreis():
         "spritpreis_eur_l": [sum(prices) / len(prices)]
     })
 
+
 @st.cache_data(ttl=3600)
 def load_gasspeicher():
     if not AGSI_API_KEY:
@@ -315,8 +510,9 @@ def load_gasspeicher():
 
     return df.sort_values("time")
 
+
 # =========================================================
-# Daten laden
+# Load all data
 # =========================================================
 errors = {}
 
@@ -368,142 +564,286 @@ except Exception as e:
     df_storage = None
     errors["gasspeicher"] = str(e)
 
-# =========================================================
-# KPI
-# =========================================================
-c1, c2, c3, c4 = st.columns(4)
-
-with c1:
-    if df_strompreis is not None and not df_strompreis.empty:
-        st.metric("Strompreis", f"{df_strompreis['strompreis_eur_mwh'].iloc[-1]:.2f} €/MWh")
-        st.caption(f"SMARD, Stand: {latest_label(df_strompreis)}")
-    else:
-        st.metric("Strompreis", "–")
-
-with c2:
-    if df_ren is not None and not df_ren.empty:
-        st.metric("Erneuerbare", f"{df_ren['erneuerbaren_anteil_prozent'].dropna().iloc[-1]:.1f} %")
-        st.caption(f"Energy-Charts, Stand: {latest_label(df_ren)}")
-    else:
-        st.metric("Erneuerbare", "–")
-
-with c3:
-    if df_sprit is not None:
-        st.metric("Spritpreis (E5)", f"{df_sprit['spritpreis_eur_l'].iloc[-1]:.3f} €/l")
-        st.caption(f"Tankerkönig, Stand: {latest_label(df_sprit)}")
-    elif zeit_snapshot and zeit_snapshot.get("sprit_eur_l") is not None:
-        st.metric("Spritpreis (E5)", f"{zeit_snapshot['sprit_eur_l']:.3f} €/l")
-        st.caption("ZEIT-Snapshot")
-    else:
-        st.metric("Spritpreis (E5)", "–")
-
-with c4:
-    if zeit_snapshot and zeit_snapshot.get("gas_ct_kwh") is not None:
-        st.metric("Gaspreis", f"{zeit_snapshot['gas_ct_kwh']:.1f} ct/kWh")
-        st.caption("ZEIT-Snapshot")
-    else:
-        st.metric("Gaspreis", "–")
 
 # =========================================================
-# Tabs
+# Prepare display data
 # =========================================================
-tabs = st.tabs([
-    "Strompreis",
-    "Stromproduktion",
-    "Erneuerbare",
-    "Windkraftausbau",
-    "Solarausbau",
-    "Spritpreis",
-    "Gaspreis",
-    "Gasspeicher",
-    "Debug",
-])
+strommix_color_map = {
+    "Coal": "#c49a86",
+    "Lignite": "#b38b78",
+    "Solar": "#e8d11a",
+    "Gas": "#8a76e8",
+    "Biomass": "#97b30f",
+    "Wind": "#27c6d9",
+    "Hydro": "#4ab6ff",
+}
 
-with tabs[0]:
-    st.subheader("Strompreis")
-    if df_strompreis is not None:
-        fig = px.line(df_strompreis.tail(24 * 7), x="time", y="strompreis_eur_mwh")
-        st.plotly_chart(fig, use_container_width=True)
-        st.dataframe(df_strompreis.tail(50), use_container_width=True)
-    else:
-        st.error(errors.get("strompreis", "Keine Daten"))
+# Stromproduktion Plotspalten
+mix_keep = []
+if df_total is not None:
+    preferred = ["Coal", "Lignite", "Solar", "Gas", "Biomass", "Wind", "Hydro", "Offshore", "Onshore"]
+    cols = [c for c in df_total.columns if c != "time"]
+    for p in preferred:
+        for c in cols:
+            if p.lower() in c.lower() and c not in mix_keep:
+                mix_keep.append(c)
+    mix_keep = mix_keep[:6]
 
-with tabs[1]:
-    st.subheader("Stromproduktion")
-    if df_total is not None:
-        plot_cols = [c for c in df_total.columns if c != "time"][:6]
-        st.write("Erkannte Spalten:", list(df_total.columns))
-        if plot_cols:
-            df_long = df_total[["time"] + plot_cols].tail(24 * 3).melt(
-                id_vars="time", var_name="Serie", value_name="Wert"
-            )
-            fig = px.area(df_long, x="time", y="Wert", color="Serie")
-            st.plotly_chart(fig, use_container_width=True)
-        st.dataframe(df_total.tail(20), use_container_width=True)
-    else:
-        st.error(errors.get("stromproduktion", "Keine Daten"))
+# =========================================================
+# Card grid row 1
+# =========================================================
+row1 = st.columns(4, gap="small")
 
-with tabs[2]:
-    st.subheader("Erneuerbaren-Anteil")
-    if df_ren is not None:
-        fig = px.line(df_ren.tail(24 * 7), x="time", y="erneuerbaren_anteil_prozent")
-        st.plotly_chart(fig, use_container_width=True)
-        st.write("Erkannte EE-Spalten:", ren_cols)
-        st.dataframe(df_ren[["time", "erneuerbaren_anteil_prozent"]].tail(20), use_container_width=True)
-    else:
-        st.error(errors.get("erneuerbare", "Keine Daten"))
+with row1[0]:
+    st.markdown('<div class="card">', unsafe_allow_html=True)
+    simple_card_header("Windkraftausbau", "cyan")
 
-with tabs[3]:
-    st.subheader("Windkraftausbau")
     if df_ausbau is not None and "wind_gesamt_mw" in df_ausbau.columns:
-        fig = px.line(df_ausbau, x="time", y="wind_gesamt_mw")
-        st.plotly_chart(fig, use_container_width=True)
-        st.write("Erkannte Wind-Spalten:", wind_cols)
-        st.dataframe(df_ausbau[["time", "wind_gesamt_mw"]].tail(20), use_container_width=True)
-    else:
-        st.warning("Keine Windspalten erkannt.")
+        latest = df_ausbau["wind_gesamt_mw"].dropna().iloc[-1]
+        first = df_ausbau["wind_gesamt_mw"].dropna().iloc[0]
+        delta = latest - first
 
-with tabs[4]:
-    st.subheader("Solarausbau")
+        metric_block(
+            f"{delta/1000:.1f}",
+            "GW",
+            "wurden seit Jahresbeginn erreicht",
+            "cyan",
+        )
+
+        st.markdown(
+            f'<div class="small-note">Installierte Gesamtleistung: {latest/1000:.1f} GW<br>Stand: {latest_label(df_ausbau)}</div>',
+            unsafe_allow_html=True,
+        )
+
+        fig = plot_line(df_ausbau.tail(60), "time", "wind_gesamt_mw", "#5ee7f2")
+        st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.warning("Keine Wind-Ausbau-Daten verfügbar.")
+    st.markdown("</div>", unsafe_allow_html=True)
+
+with row1[1]:
+    st.markdown('<div class="card">', unsafe_allow_html=True)
+    simple_card_header("Solarausbau", "yellow")
+
     if df_ausbau is not None and "solar_gesamt_mw" in df_ausbau.columns:
-        fig = px.line(df_ausbau, x="time", y="solar_gesamt_mw")
-        st.plotly_chart(fig, use_container_width=True)
-        st.write("Erkannte Solar-Spalten:", solar_cols)
-        st.dataframe(df_ausbau[["time", "solar_gesamt_mw"]].tail(20), use_container_width=True)
-    else:
-        st.warning("Keine Solarspalten erkannt.")
+        latest = df_ausbau["solar_gesamt_mw"].dropna().iloc[-1]
+        first = df_ausbau["solar_gesamt_mw"].dropna().iloc[0]
+        delta = latest - first
 
-with tabs[5]:
-    st.subheader("Spritpreis")
+        metric_block(
+            f"{delta/1000:.1f}",
+            "GW",
+            "wurden seit Jahresbeginn installiert",
+            "yellow",
+        )
+
+        st.markdown(
+            f'<div class="small-note">Installierte Gesamtleistung: {latest/1000:.1f} GW<br>Stand: {latest_label(df_ausbau)}</div>',
+            unsafe_allow_html=True,
+        )
+
+        fig = plot_line(df_ausbau.tail(60), "time", "solar_gesamt_mw", "#e8d11a")
+        st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.warning("Keine Solar-Ausbau-Daten verfügbar.")
+    st.markdown("</div>", unsafe_allow_html=True)
+
+with row1[2]:
+    st.markdown('<div class="card">', unsafe_allow_html=True)
+    simple_card_header("Erneuerbare", "green")
+
+    if df_ren is not None and not df_ren.empty:
+        latest = df_ren["erneuerbaren_anteil_prozent"].dropna().iloc[-1]
+        avg30 = df_ren["erneuerbaren_anteil_prozent"].tail(24 * 30).mean()
+
+        metric_block(
+            f"{latest:.0f}",
+            "%",
+            "des Stroms waren zuletzt erneuerbar",
+            "green",
+        )
+
+        st.markdown(
+            f'<div class="small-note">30-Tage-Durchschnitt: {avg30:.0f} %<br>Stand: {latest_label(df_ren)}</div>',
+            unsafe_allow_html=True,
+        )
+
+        fig = plot_line(df_ren.tail(24 * 30), "time", "erneuerbaren_anteil_prozent", "#19d36b")
+        st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.warning("Keine Daten zum EE-Anteil verfügbar.")
+    st.markdown("</div>", unsafe_allow_html=True)
+
+with row1[3]:
+    st.markdown('<div class="card">', unsafe_allow_html=True)
+    simple_card_header("Stromproduktion", "cyan")
+
+    if df_total is not None and mix_keep:
+        latest_mix = df_total.iloc[-1]
+        total_now = latest_mix[mix_keep].sum(skipna=True)
+
+        metric_block(
+            f"{total_now/1000:.1f}",
+            "GW",
+            "Strom wurden zuletzt in Deutschland erzeugt",
+            "cyan",
+        )
+
+        mix_long = df_total[["time"] + mix_keep].tail(24 * 3).melt(
+            id_vars="time",
+            var_name="Serie",
+            value_name="Wert"
+        )
+        fig = plot_area(mix_long, "time", "Wert", "Serie", strommix_color_map)
+        st.plotly_chart(fig, use_container_width=True)
+
+        latest_shares = latest_mix[mix_keep] / latest_mix[mix_keep].sum(skipna=True) * 100
+        latest_shares = latest_shares.sort_values(ascending=False)
+
+        share_lines = []
+        for idx, val in latest_shares.head(6).items():
+            share_lines.append(f"{idx}: {val:.0f} %")
+        st.markdown(
+            f'<div class="small-note">Anteil der Energieträger<br>{"<br>".join(share_lines)}</div>',
+            unsafe_allow_html=True,
+        )
+    else:
+        st.warning("Keine Stromproduktionsdaten verfügbar.")
+    st.markdown("</div>", unsafe_allow_html=True)
+
+st.markdown('<div class="section-gap"></div>', unsafe_allow_html=True)
+
+# =========================================================
+# Card grid row 2
+# =========================================================
+row2 = st.columns(4, gap="small")
+
+with row2[0]:
+    st.markdown('<div class="card">', unsafe_allow_html=True)
+    simple_card_header("Strompreis", "cyan")
+
+    if df_strompreis is not None and not df_strompreis.empty:
+        latest = df_strompreis["strompreis_eur_mwh"].dropna().iloc[-1]
+        latest_ct = latest / 10.0
+
+        metric_block(
+            f"{latest_ct:.1f}",
+            "Cent",
+            "kostete eine kWh Strom am Großhandelsmarkt zuletzt",
+            "cyan",
+        )
+
+        st.markdown(
+            f'<div class="small-note">Stündliche Werte<br>Stand: {latest_label(df_strompreis)}</div>',
+            unsafe_allow_html=True,
+        )
+
+        fig = plot_line(df_strompreis.tail(24 * 7), "time", "strompreis_eur_mwh", "#5ee7f2")
+        st.plotly_chart(fig, use_container_width=True)
+    elif zeit_snapshot and zeit_snapshot.get("strom_ct_kwh") is not None:
+        metric_block(
+            f"{zeit_snapshot['strom_ct_kwh']:.1f}",
+            "Cent",
+            "kostete eine kWh Strom für Neukunden zuletzt",
+            "cyan",
+        )
+        st.markdown('<div class="small-note">Quelle: ZEIT-Snapshot</div>', unsafe_allow_html=True)
+    else:
+        st.warning("Kein Strompreis verfügbar.")
+    st.markdown("</div>", unsafe_allow_html=True)
+
+with row2[1]:
+    st.markdown('<div class="card">', unsafe_allow_html=True)
+    simple_card_header("Spritpreis", "pink")
+
     if df_sprit is not None:
-        st.dataframe(df_sprit, use_container_width=True)
+        latest = df_sprit["spritpreis_eur_l"].iloc[-1]
+        metric_block(
+            f"{latest:.2f}",
+            "€",
+            "kostete ein Liter Super E5 zuletzt im Mittel",
+            "pink",
+        )
+        st.markdown(
+            f'<div class="small-note">Mittel aus mehreren Stadtabfragen<br>Stand: {latest_label(df_sprit)}</div>',
+            unsafe_allow_html=True,
+        )
     elif zeit_snapshot and zeit_snapshot.get("sprit_eur_l") is not None:
-        st.metric("Fallback", f"{zeit_snapshot['sprit_eur_l']:.3f} €/l")
-        st.caption("ZEIT-Snapshot")
+        latest = zeit_snapshot["sprit_eur_l"]
+        metric_block(
+            f"{latest:.2f}",
+            "€",
+            "kostete ein Liter Super E5 zuletzt im Mittel",
+            "pink",
+        )
+        st.markdown(
+            '<div class="small-note">Fallback: ZEIT-Snapshot</div>',
+            unsafe_allow_html=True,
+        )
     else:
         st.warning("Kein Spritpreis verfügbar.")
 
-with tabs[6]:
-    st.subheader("Gaspreis")
+    # kleine Placeholder-/Fallback-Grafik
+    if df_sprit is not None:
+        fig = plot_line(df_sprit, "time", "spritpreis_eur_l", "#ff6b8b")
+        st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.empty()
+    st.markdown("</div>", unsafe_allow_html=True)
+
+with row2[2]:
+    st.markdown('<div class="card">', unsafe_allow_html=True)
+    simple_card_header("Gaspreis", "purple")
+
     if zeit_snapshot and zeit_snapshot.get("gas_ct_kwh") is not None:
-        st.metric("Aktueller Gaspreis", f"{zeit_snapshot['gas_ct_kwh']:.1f} ct/kWh")
-        st.caption("ZEIT-Snapshot")
+        latest = zeit_snapshot["gas_ct_kwh"]
+        metric_block(
+            f"{latest:.1f}",
+            "Cent",
+            "kostete eine kWh Gas für Neukunden zuletzt",
+            "purple",
+        )
+        st.markdown(
+            '<div class="small-note">Aktueller Snapshot</div>',
+            unsafe_allow_html=True,
+        )
     else:
         st.warning("Kein Gaspreis verfügbar.")
 
-with tabs[7]:
-    st.subheader("Gasspeicher")
-    if df_storage is not None and "full" in df_storage.columns:
-        fig = px.line(df_storage, x="time", y="full")
+    st.markdown("</div>", unsafe_allow_html=True)
+
+with row2[3]:
+    st.markdown('<div class="card">', unsafe_allow_html=True)
+    simple_card_header("Füllstand", "purple")
+
+    if df_storage is not None and "full" in df_storage.columns and not df_storage["full"].dropna().empty:
+        latest = df_storage["full"].dropna().iloc[-1]
+
+        metric_block(
+            f"{latest:.1f}",
+            "%",
+            "der Gasspeicher waren zuletzt gefüllt",
+            "purple",
+        )
+
+        st.markdown(
+            f'<div class="small-note">Tageswerte<br>Stand: {latest_label(df_storage)}</div>',
+            unsafe_allow_html=True,
+        )
+
+        fig = plot_line(df_storage.tail(120), "time", "full", "#a58cff")
         st.plotly_chart(fig, use_container_width=True)
-        st.dataframe(df_storage.tail(20), use_container_width=True)
     else:
         st.warning("Kein Gasspeicher verfügbar oder API-Key fehlt.")
+    st.markdown("</div>", unsafe_allow_html=True)
 
-with tabs[8]:
-    st.subheader("Debug")
-    st.json(errors if errors else {"status": "keine Fehler"})
-    if strom_raw is not None:
-        st.write("Top-Level-Keys Stromproduktion:", list(strom_raw.keys()) if isinstance(strom_raw, dict) else type(strom_raw))
-    if raw_installed is not None:
-        st.write("Top-Level-Keys Installed Power:", list(raw_installed.keys()) if isinstance(raw_installed, dict) else type(raw_installed))
+# =========================================================
+# Optional debug
+# =========================================================
+with st.expander("Debug / Fehlermeldungen"):
+    st.markdown('<div class="debug-box">', unsafe_allow_html=True)
+    if errors:
+        st.json(errors)
+    else:
+        st.write("Keine Fehler erkannt.")
+    st.markdown("</div>", unsafe_allow_html=True)
