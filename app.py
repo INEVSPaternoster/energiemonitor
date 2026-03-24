@@ -38,21 +38,10 @@ st.markdown(
         color: #f5f5f5;
     }
 
-    .card {
-        background: #0a0a0a;
-        border: 1px solid #2d2d2d;
-        border-radius: 0px;
-        padding: 14px 14px 8px 14px;
-        min-height: 520px;
-        display: flex;
-        flex-direction: column;
-        justify-content: space-between;
-    }
-
     .card-title {
-        font-size: 1.45rem;
+        font-size: 1.35rem;
         font-weight: 700;
-        margin-bottom: 0.9rem;
+        margin-bottom: 0.7rem;
         line-height: 1.15;
     }
 
@@ -60,40 +49,40 @@ st.markdown(
         display: flex;
         align-items: baseline;
         gap: 0.35rem;
-        margin-bottom: 0.3rem;
+        margin-bottom: 0.25rem;
         flex-wrap: wrap;
     }
 
     .metric-value {
-        font-size: 2.05rem;
+        font-size: 2.0rem;
         font-weight: 800;
         line-height: 1;
     }
 
     .metric-unit {
-        font-size: 1.1rem;
+        font-size: 1.05rem;
         font-weight: 700;
         opacity: 0.95;
     }
 
     .metric-text {
-        font-size: 0.98rem;
-        line-height: 1.35;
-        margin-bottom: 0.9rem;
+        font-size: 0.92rem;
+        line-height: 1.3;
+        margin-bottom: 0.7rem;
     }
 
     .small-note {
         color: #9f9f9f;
-        font-size: 0.84rem;
-        margin-top: 0.2rem;
+        font-size: 0.82rem;
+        margin-top: 0.15rem;
         margin-bottom: 0.6rem;
         line-height: 1.35;
     }
 
     .empty-note {
         color: #c8c8c8;
-        font-size: 0.95rem;
-        margin-top: 0.2rem;
+        font-size: 0.92rem;
+        margin-top: 0.15rem;
         opacity: 0.9;
     }
 
@@ -105,7 +94,13 @@ st.markdown(
     .white { color: #f5f5f5; }
 
     .section-gap {
-        height: 14px;
+        height: 10px;
+    }
+
+    .card-divider {
+        border-top: 1px solid #2d2d2d;
+        margin-top: 0.2rem;
+        margin-bottom: 0.8rem;
     }
 
     .debug-box {
@@ -186,25 +181,29 @@ def metric_block(value, unit, text, color_class):
     )
 
 
+def small_note(text):
+    st.markdown(f'<div class="small-note">{text}</div>', unsafe_allow_html=True)
+
+
 def empty_block(text="Derzeit keine Daten verfügbar"):
     st.markdown(f'<div class="empty-note">{text}</div>', unsafe_allow_html=True)
 
 
 def plot_line(df, x, y, color_hex):
     fig = px.line(df, x=x, y=y)
-    fig.update_traces(line=dict(color=color_hex, width=2.6))
+    fig.update_traces(line=dict(color=color_hex, width=2.5))
     fig.update_layout(
-        height=180,
-        margin=dict(l=8, r=8, t=8, b=8),
-        paper_bgcolor="#0a0a0a",
-        plot_bgcolor="#0a0a0a",
+        height=140,
+        margin=dict(l=6, r=6, t=6, b=6),
+        paper_bgcolor="#000000",
+        plot_bgcolor="#000000",
         font=dict(color="#d7d7d7"),
         xaxis=dict(
             title="",
             showgrid=False,
             zeroline=False,
             showline=False,
-            tickfont=dict(size=10),
+            tickfont=dict(size=9),
         ),
         yaxis=dict(
             title="",
@@ -212,7 +211,7 @@ def plot_line(df, x, y, color_hex):
             gridcolor="#313131",
             zeroline=False,
             showline=False,
-            tickfont=dict(size=10),
+            tickfont=dict(size=9),
         ),
         showlegend=False,
     )
@@ -222,17 +221,17 @@ def plot_line(df, x, y, color_hex):
 def plot_area(df_long, x, y, color, color_map):
     fig = px.area(df_long, x=x, y=y, color=color, color_discrete_map=color_map)
     fig.update_layout(
-        height=180,
-        margin=dict(l=8, r=8, t=8, b=8),
-        paper_bgcolor="#0a0a0a",
-        plot_bgcolor="#0a0a0a",
+        height=140,
+        margin=dict(l=6, r=6, t=6, b=6),
+        paper_bgcolor="#000000",
+        plot_bgcolor="#000000",
         font=dict(color="#d7d7d7"),
         xaxis=dict(
             title="",
             showgrid=False,
             zeroline=False,
             showline=False,
-            tickfont=dict(size=10),
+            tickfont=dict(size=9),
         ),
         yaxis=dict(
             title="",
@@ -240,7 +239,7 @@ def plot_area(df_long, x, y, color, color_map):
             gridcolor="#313131",
             zeroline=False,
             showline=False,
-            tickfont=dict(size=10),
+            tickfont=dict(size=9),
         ),
         legend=dict(
             orientation="h",
@@ -249,7 +248,7 @@ def plot_area(df_long, x, y, color, color_map):
             xanchor="left",
             x=0,
             bgcolor="rgba(0,0,0,0)",
-            font=dict(size=9),
+            font=dict(size=8),
         ),
     )
     return fig
@@ -317,7 +316,7 @@ def load_smard_strompreis():
 
 
 # =========================================================
-# DATA: ENERGY CHARTS PARSER
+# DATA: ENERGY CHARTS
 # =========================================================
 def parse_energy_charts_payload(data):
     if isinstance(data, dict):
@@ -395,9 +394,6 @@ def parse_energy_charts_payload(data):
     )
 
 
-# =========================================================
-# DATA: ENERGY CHARTS LOADER
-# =========================================================
 @st.cache_data(ttl=3600)
 def load_energy_charts_raw(endpoint, days=7):
     end_date = datetime.utcnow().date()
@@ -460,7 +456,7 @@ def build_ausbau_series(df_installed):
 
 
 # =========================================================
-# DATA: OPTIONAL SOURCES
+# OPTIONAL SOURCES
 # =========================================================
 @st.cache_data(ttl=1800)
 def load_spritpreis():
@@ -606,7 +602,6 @@ if df_total is not None:
 row1 = st.columns(4, gap="small")
 
 with row1[0]:
-    st.markdown('<div class="card">', unsafe_allow_html=True)
     simple_card_header("Windkraftausbau", "cyan")
 
     if df_ausbau is not None and "wind_gesamt_mw" in df_ausbau.columns and not df_ausbau["wind_gesamt_mw"].dropna().empty:
@@ -615,19 +610,13 @@ with row1[0]:
         delta = latest - first
 
         metric_block(f"{delta/1000:.1f}", "GW", "wurden seit Jahresbeginn erreicht", "cyan")
-        st.markdown(
-            f'<div class="small-note">Installierte Gesamtleistung: {latest/1000:.1f} GW<br>Stand: {latest_label(df_ausbau)}</div>',
-            unsafe_allow_html=True,
-        )
-
+        small_note(f"Installierte Gesamtleistung: {latest/1000:.1f} GW<br>Stand: {latest_label(df_ausbau)}")
         fig = plot_line(df_ausbau.tail(60), "time", "wind_gesamt_mw", "#5ee7f2")
         st.plotly_chart(fig, use_container_width=True)
     else:
         empty_block()
-    st.markdown("</div>", unsafe_allow_html=True)
 
 with row1[1]:
-    st.markdown('<div class="card">', unsafe_allow_html=True)
     simple_card_header("Solarausbau", "yellow")
 
     if df_ausbau is not None and "solar_gesamt_mw" in df_ausbau.columns and not df_ausbau["solar_gesamt_mw"].dropna().empty:
@@ -636,19 +625,13 @@ with row1[1]:
         delta = latest - first
 
         metric_block(f"{delta/1000:.1f}", "GW", "wurden seit Jahresbeginn installiert", "yellow")
-        st.markdown(
-            f'<div class="small-note">Installierte Gesamtleistung: {latest/1000:.1f} GW<br>Stand: {latest_label(df_ausbau)}</div>',
-            unsafe_allow_html=True,
-        )
-
+        small_note(f"Installierte Gesamtleistung: {latest/1000:.1f} GW<br>Stand: {latest_label(df_ausbau)}")
         fig = plot_line(df_ausbau.tail(60), "time", "solar_gesamt_mw", "#e8d11a")
         st.plotly_chart(fig, use_container_width=True)
     else:
         empty_block()
-    st.markdown("</div>", unsafe_allow_html=True)
 
 with row1[2]:
-    st.markdown('<div class="card">', unsafe_allow_html=True)
     simple_card_header("Erneuerbare", "green")
 
     if df_ren is not None and not df_ren.empty and not df_ren["erneuerbaren_anteil_prozent"].dropna().empty:
@@ -656,19 +639,13 @@ with row1[2]:
         avg30 = df_ren["erneuerbaren_anteil_prozent"].tail(24 * 30).mean()
 
         metric_block(f"{latest:.0f}", "%", "des Stroms waren zuletzt erneuerbar", "green")
-        st.markdown(
-            f'<div class="small-note">30-Tage-Durchschnitt: {avg30:.0f} %<br>Stand: {latest_label(df_ren)}</div>',
-            unsafe_allow_html=True,
-        )
-
+        small_note(f"30-Tage-Durchschnitt: {avg30:.0f} %<br>Stand: {latest_label(df_ren)}")
         fig = plot_line(df_ren.tail(24 * 30), "time", "erneuerbaren_anteil_prozent", "#19d36b")
         st.plotly_chart(fig, use_container_width=True)
     else:
         empty_block()
-    st.markdown("</div>", unsafe_allow_html=True)
 
 with row1[3]:
-    st.markdown('<div class="card">', unsafe_allow_html=True)
     simple_card_header("Stromproduktion", "white")
 
     if df_total is not None and mix_keep:
@@ -688,14 +665,9 @@ with row1[3]:
         latest_shares = latest_mix[mix_keep] / latest_mix[mix_keep].sum(skipna=True) * 100
         latest_shares = latest_shares.sort_values(ascending=False)
         share_lines = [f"{idx}: {val:.0f} %" for idx, val in latest_shares.head(6).items()]
-
-        st.markdown(
-            f'<div class="small-note">Anteil der Energieträger<br>{"<br>".join(share_lines)}</div>',
-            unsafe_allow_html=True,
-        )
+        small_note(f"Anteil der Energieträger<br>{'<br>'.join(share_lines)}")
     else:
         empty_block()
-    st.markdown("</div>", unsafe_allow_html=True)
 
 st.markdown('<div class="section-gap"></div>', unsafe_allow_html=True)
 
@@ -705,7 +677,6 @@ st.markdown('<div class="section-gap"></div>', unsafe_allow_html=True)
 row2 = st.columns(4, gap="small")
 
 with row2[0]:
-    st.markdown('<div class="card">', unsafe_allow_html=True)
     simple_card_header("Strompreis", "cyan")
 
     if df_strompreis is not None and not df_strompreis.empty and not df_strompreis["strompreis_eur_mwh"].dropna().empty:
@@ -713,11 +684,7 @@ with row2[0]:
         latest_ct = latest / 10.0
 
         metric_block(f"{latest_ct:.1f}", "Cent", "kostete eine kWh Strom am Großhandelsmarkt zuletzt", "cyan")
-        st.markdown(
-            f'<div class="small-note">Stündliche Werte<br>Stand: {latest_label(df_strompreis)}</div>',
-            unsafe_allow_html=True,
-        )
-
+        small_note(f"Stündliche Werte<br>Stand: {latest_label(df_strompreis)}")
         fig = plot_line(df_strompreis.tail(24 * 7), "time", "strompreis_eur_mwh", "#5ee7f2")
         st.plotly_chart(fig, use_container_width=True)
     elif zeit_snapshot and zeit_snapshot.get("strom_ct_kwh") is not None:
@@ -727,62 +694,47 @@ with row2[0]:
             "kostete eine kWh Strom für Neukunden zuletzt",
             "cyan",
         )
-        st.markdown('<div class="small-note">Quelle: ZEIT-Snapshot</div>', unsafe_allow_html=True)
+        small_note("Quelle: ZEIT-Snapshot")
     else:
         empty_block()
-    st.markdown("</div>", unsafe_allow_html=True)
 
 with row2[1]:
-    st.markdown('<div class="card">', unsafe_allow_html=True)
     simple_card_header("Spritpreis", "pink")
 
     if df_sprit is not None and not df_sprit.empty:
         latest = df_sprit["spritpreis_eur_l"].iloc[-1]
         metric_block(f"{latest:.2f}", "€", "kostete ein Liter Super E5 zuletzt im Mittel", "pink")
-        st.markdown(
-            f'<div class="small-note">Mittel aus mehreren Stadtabfragen<br>Stand: {latest_label(df_sprit)}</div>',
-            unsafe_allow_html=True,
-        )
+        small_note(f"Mittel aus mehreren Stadtabfragen<br>Stand: {latest_label(df_sprit)}")
         fig = plot_line(df_sprit, "time", "spritpreis_eur_l", "#ff6b8b")
         st.plotly_chart(fig, use_container_width=True)
     elif zeit_snapshot and zeit_snapshot.get("sprit_eur_l") is not None:
         latest = zeit_snapshot["sprit_eur_l"]
         metric_block(f"{latest:.2f}", "€", "kostete ein Liter Super E5 zuletzt im Mittel", "pink")
-        st.markdown('<div class="small-note">Fallback: ZEIT-Snapshot</div>', unsafe_allow_html=True)
+        small_note("Fallback: ZEIT-Snapshot")
     else:
         empty_block()
-    st.markdown("</div>", unsafe_allow_html=True)
 
 with row2[2]:
-    st.markdown('<div class="card">', unsafe_allow_html=True)
     simple_card_header("Gaspreis", "purple")
 
     if zeit_snapshot and zeit_snapshot.get("gas_ct_kwh") is not None:
         latest = zeit_snapshot["gas_ct_kwh"]
         metric_block(f"{latest:.1f}", "Cent", "kostete eine kWh Gas für Neukunden zuletzt", "purple")
-        st.markdown('<div class="small-note">Aktueller Snapshot</div>', unsafe_allow_html=True)
+        small_note("Aktueller Snapshot")
     else:
         empty_block()
-    st.markdown("</div>", unsafe_allow_html=True)
 
 with row2[3]:
-    st.markdown('<div class="card">', unsafe_allow_html=True)
     simple_card_header("Füllstand", "purple")
 
     if df_storage is not None and "full" in df_storage.columns and not df_storage["full"].dropna().empty:
         latest = df_storage["full"].dropna().iloc[-1]
-
         metric_block(f"{latest:.1f}", "%", "der Gasspeicher waren zuletzt gefüllt", "purple")
-        st.markdown(
-            f'<div class="small-note">Tageswerte<br>Stand: {latest_label(df_storage)}</div>',
-            unsafe_allow_html=True,
-        )
-
+        small_note(f"Tageswerte<br>Stand: {latest_label(df_storage)}")
         fig = plot_line(df_storage.tail(120), "time", "full", "#a58cff")
         st.plotly_chart(fig, use_container_width=True)
     else:
         empty_block("Kein Gasspeicher verfügbar oder API-Key fehlt")
-    st.markdown("</div>", unsafe_allow_html=True)
 
 # =========================================================
 # DEBUG
